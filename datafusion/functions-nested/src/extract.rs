@@ -18,8 +18,9 @@
 //! [`ScalarUDFImpl`] definitions for array_element, array_slice, array_pop_front, array_pop_back, and array_any_value functions.
 
 use arrow::array::{
-    Array, ArrayRef, Capacities, GenericListArray, GenericListViewArray, Int64Array,
-    MutableArrayData, NullArray, NullBufferBuilder, OffsetSizeTrait,
+    Array, ArrayRef, Capacities, GenericListArray, GenericListBuilder,
+    GenericListViewArray, Int64Array, MutableArrayData, NullArray, NullBufferBuilder,
+    OffsetSizeTrait,
 };
 use arrow::buffer::{OffsetBuffer, ScalarBuffer};
 use arrow::datatypes::DataType;
@@ -446,11 +447,19 @@ fn array_slice_inner(args: &[ArrayRef]) -> Result<ArrayRef> {
     match array_data_type {
         List(_) => {
             let array = as_list_array(&args[0])?;
-            general_array_slice::<i32>(array, from_array, to_array, stride)
+            if stride.is_none() {
+                general_array_slice_no_stride::<i32>(array, from_array, to_array)
+            } else {
+                general_array_slice::<i32>(array, from_array, to_array, stride)
+            }
         }
         LargeList(_) => {
             let array = as_large_list_array(&args[0])?;
-            general_array_slice::<i64>(array, from_array, to_array, stride)
+            if stride.is_none() {
+                general_array_slice_no_stride::<i64>(array, from_array, to_array)
+            } else {
+                general_array_slice::<i64>(array, from_array, to_array, stride)
+            }
         }
         ListView(_) => {
             let array = as_list_view_array(&args[0])?;
@@ -606,6 +615,73 @@ where
         }
         Ok(SlicePlan::Indices(indices))
     }
+}
+
+fn general_array_slice_no_stride<O: OffsetSizeTrait>(
+    array: &GenericListArray<O>,
+    from_array: &Int64Array,
+    to_array: &Int64Array,
+) -> Result<ArrayRef>
+where
+    i64: TryInto<O>,
+{
+    // We must build `offsets` and `sizes` buffers manually as ListView does not enforce
+    // monotonically increasing offsets.
+    let mut offsets = Vec::with_capacity(array.len());
+    let mut sizes = Vec::with_capacity(array.len());
+    let mut current_offset = O::usize_as(0);
+    let mut null_builder = NullBufferBuilder::new(array.len());
+
+    for i in 0..array.len() {
+        // If any input is null, return null.
+        if array.is_null(i) || from_array.is_null(i) || to_array.is_null(i) {
+            null_builder.append_null();
+            offsets.push(current_offset);
+            sizes.push(O::usize_as(0));
+            continue;
+        }
+        null_builder.append_non_null();
+
+        let len = array.value_length(i);
+        // Empty arrays always return an empty array.
+        if len == O::usize_as(0) {
+            offsets.push(current_offset);
+            sizes.push(O::usize_as(0));
+            continue;
+        }
+
+        let slice_plan =
+            compute_slice_plan::<O>(len, from_array.value(i), to_array.value(i), None)?;
+
+        match slice_plan {
+            SlicePlan::Empty => {
+                offsets.push(current_offset);
+                sizes.push(O::usize_as(0));
+            }
+            SlicePlan::Contiguous {
+                start,
+                len: slice_len,
+            } => {
+                offsets.push(current_offset);
+                sizes.push(slice_len);
+                current_offset += slice_len;
+            }
+            _ => {
+                return internal_err!(
+                    "array_slice without stride must return an empty or contiguous array"
+                );
+            }
+        }
+    }
+
+    let v = GenericListViewArray::<O>::try_new(
+        Arc::new(Field::new_list_field(array.value_type(), true)),
+        ScalarBuffer::from(offsets),
+        ScalarBuffer::from(sizes),
+        Arc::clone(array.values()),
+        null_builder.finish(),
+    )?;
+    Ok(Arc::new(v))
 }
 
 fn general_array_slice<O: OffsetSizeTrait>(

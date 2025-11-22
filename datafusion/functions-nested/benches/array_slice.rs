@@ -180,16 +180,16 @@ fn criterion_benchmark(c: &mut Criterion) {
     let scalar_from = ColumnarValue::Scalar(ScalarValue::from(1i64));
     let scalar_to = ColumnarValue::Scalar(ScalarValue::from(child_array_size as i64 / 2));
 
-    for input in [list_array, list_view_array] {
+    for input in [list_array] {
         let input_type = input.data_type().to_string();
 
-        array_slice_benchmark(
-            &format!("array_slice: input {input_type}, array args"),
-            input.clone(),
-            vec![array_from.clone(), array_to.clone(), array_stride.clone()],
-            c,
-            size,
-        );
+        // array_slice_benchmark(
+        //     &format!("array_slice: input {input_type}, array args"),
+        //     input.clone(),
+        //     vec![array_from.clone(), array_to.clone(), array_stride.clone()],
+        //     c,
+        //     size,
+        // );
 
         array_slice_benchmark(
             &format!("array_slice: input {input_type}, array args, no stride"),
@@ -199,30 +199,30 @@ fn criterion_benchmark(c: &mut Criterion) {
             size,
         );
 
-        array_slice_benchmark(
-            &format!("array_slice: input {input_type}, scalar args, no stride"),
-            input.clone(),
-            vec![scalar_from.clone(), scalar_to.clone()],
-            c,
-            size,
-        );
-
-        for stride in [-2i64, -1i64, 1i64, 2i64] {
-            // swap from and to if stride < 0
-            let (scalar_from, scalar_to) = if stride > 0 {
-                (scalar_from.clone(), scalar_to.clone())
-            } else {
-                (scalar_to.clone(), scalar_from.clone())
-            };
-            let scalar_stride = ColumnarValue::Scalar(ScalarValue::from(stride));
-            array_slice_benchmark(
-                &format!("array_slice: input {input_type}, scalar args, stride={stride}"),
-                input.clone(),
-                vec![scalar_from, scalar_to, scalar_stride],
-                c,
-                size,
-            );
-        }
+        // array_slice_benchmark(
+        //     &format!("array_slice: input {input_type}, scalar args, no stride"),
+        //     input.clone(),
+        //     vec![scalar_from.clone(), scalar_to.clone()],
+        //     c,
+        //     size,
+        // );
+        //
+        // for stride in [-2i64, -1i64, 1i64, 2i64] {
+        //     // swap from and to if stride < 0
+        //     let (scalar_from, scalar_to) = if stride > 0 {
+        //         (scalar_from.clone(), scalar_to.clone())
+        //     } else {
+        //         (scalar_to.clone(), scalar_from.clone())
+        //     };
+        //     let scalar_stride = ColumnarValue::Scalar(ScalarValue::from(stride));
+        //     array_slice_benchmark(
+        //         &format!("array_slice: input {input_type}, scalar args, stride={stride}"),
+        //         input.clone(),
+        //         vec![scalar_from, scalar_to, scalar_stride],
+        //         c,
+        //         size,
+        //     );
+        // }
     }
 }
 
